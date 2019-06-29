@@ -116,7 +116,8 @@ class DonkeyUnitySim(object):
         if abs(self.cte) > self.CTE_MAX_ERR:
             return -1.0
 
-        return 1.0 - (abs(self.cte) / self.CTE_MAX_ERR)
+        #return 1.0 - (abs(self.cte) / self.CTE_MAX_ERR)
+        return abs(self.prev_cte) - abs(self.cte)
 
 
     ## ------ Launch Unity Env ----------- ##

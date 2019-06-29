@@ -4,7 +4,6 @@ import random
 import numpy as np
 import cv2
 import skimage as skimage
-import skimage as skimage
 from skimage import transform, color, exposure
 from skimage.transform import rotate
 from skimage.viewer import ImageViewer
@@ -23,18 +22,19 @@ from keras import backend as K
 import donkey_gym
 import my_cv
 
-EPISODES = 10000
-img_rows , img_cols = 80, 80
+EPISODES = 50
+img_rows, img_cols = 80, 80
 # Convert image into Black and white
-img_channels = 4 # We stack 4 frames
+img_channels = 4  # We stack 4 frames
+
 
 class DQNAgent:
 
     def __init__(self, state_size, action_size):
         self.t = 0
         self.max_Q = 0
-        self.train = True
-        self.lane_detection = False # Set to True to train on images with segmented lane lines
+        self.train = False
+        self.lane_detection = True  # Set to True to train on images with segmented lane lines
 
         # Get size of state and action
         self.state_size = state_size
@@ -66,9 +66,21 @@ class DQNAgent:
         self.update_target_model()
 
     def build_model(self):
+        # Nvidia model like
+        # Convolution: 8x8, filter: 32, strides: 4x4, activation: RELU
+        # Convolution: 4x4, filter: 64, strides: 2x2, activation: RELU
+        # Convolution: 3x3, filter: 64, strides: 1x1, activation: RELU
+        # Fully connected: neurons: 512, activation: RELU
+        # Fully connected: neurons: 15 (output: steering)
+
+        # the convolution layers are meant to handle feature engineering
+        # the fully connected layer for predicting the steering angle.
+        # RELU(Rectified linear unit) function takes care of the Vanishing gradient problem.
+
         print("Now we build the model")
         model = Sequential()
-        model.add(Convolution2D(32, 8, 8, subsample=(4, 4), border_mode='same',input_shape=(img_rows,img_cols,img_channels)))  #80*80*4
+        model.add(Convolution2D(32, 8, 8, subsample=(4, 4), border_mode='same',
+                                input_shape=(img_rows, img_cols, img_channels)))  # 80*80*4
         model.add(Activation('relu'))
         model.add(Convolution2D(64, 4, 4, subsample=(2, 2), border_mode='same'))
         model.add(Activation('relu'))
@@ -79,10 +91,10 @@ class DQNAgent:
         model.add(Activation('relu'))
 
         # 15 categorical bins for Steering angles
-        model.add(Dense(15, activation="linear")) 
+        model.add(Dense(15, activation="linear"))
 
         adam = Adam(lr=self.learning_rate)
-        model.compile(loss='mse',optimizer=adam)
+        model.compile(loss='mse', optimizer=adam)
         print("We finished building the model")
 
         return model
@@ -99,7 +111,7 @@ class DQNAgent:
             edges = my_cv.detect_edges(obs, low_threshold=50, high_threshold=150)
 
             rho = 0.8
-            theta = np.pi/180
+            theta = np.pi / 180
             threshold = 25
             min_line_len = 5
             max_line_gap = 10
@@ -108,21 +120,21 @@ class DQNAgent:
 
             left_lines, right_lines = my_cv.separate_lines(hough_lines)
 
-            filtered_right, filtered_left = [],[]
+            filtered_right, filtered_left = [], []
             if len(left_lines):
                 filtered_left = my_cv.reject_outliers(left_lines, cutoff=(-30.0, -0.1), lane='left')
             if len(right_lines):
-                filtered_right = my_cv.reject_outliers(right_lines,  cutoff=(0.1, 30.0), lane='right')
+                filtered_right = my_cv.reject_outliers(right_lines, cutoff=(0.1, 30.0), lane='right')
 
             lines = []
             if len(filtered_left) and len(filtered_right):
-                lines = np.expand_dims(np.vstack((np.array(filtered_left),np.array(filtered_right))),axis=0).tolist()
+                lines = np.expand_dims(np.vstack((np.array(filtered_left), np.array(filtered_right))), axis=0).tolist()
             elif len(filtered_left):
-                lines = np.expand_dims(np.expand_dims(np.array(filtered_left),axis=0),axis=0).tolist()
+                lines = np.expand_dims(np.expand_dims(np.array(filtered_left), axis=0), axis=0).tolist()
             elif len(filtered_right):
-                lines = np.expand_dims(np.expand_dims(np.array(filtered_right),axis=0),axis=0).tolist()
+                lines = np.expand_dims(np.expand_dims(np.array(filtered_right), axis=0), axis=0).tolist()
 
-            ret_img = np.zeros((80,80))
+            ret_img = np.zeros((80, 80))
 
             if len(lines):
                 try:
@@ -131,7 +143,6 @@ class DQNAgent:
                     pass
 
             return ret_img
-        
 
     def update_target_model(self):
         self.target_model.set_weights(self.model.get_weights())
@@ -139,11 +150,11 @@ class DQNAgent:
     # Get action from model using epsilon-greedy policy
     def get_action(self, s_t):
         if np.random.rand() <= self.epsilon:
-            #print("Return Random Value")
-            #return random.randrange(self.action_size)
-            return np.random.uniform(-1,1)
+            # print("Return Random Value")
+            # return random.randrange(self.action_size)
+            return np.random.uniform(-1, 1)
         else:
-            #print("Return Max Q Prediction")
+            # print("Return Max Q Prediction")
             q_value = self.model.predict(s_t)
             # Convert q array to steering value
             return linear_unbin(q_value[0])
@@ -151,14 +162,13 @@ class DQNAgent:
     def replay_memory(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
         if self.epsilon > self.epsilon_min:
-            #self.epsilon *= self.epsilon_decay
+            # self.epsilon *= self.epsilon_decay
             self.epsilon -= (self.initial_epsilon - self.epsilon_min) / self.explore
-
 
     def train_replay(self):
         if len(self.memory) < self.train_start:
             return
-        
+
         batch_size = min(self.batch_size, len(self.memory))
         minibatch = random.sample(self.memory, batch_size)
 
@@ -184,6 +194,7 @@ class DQNAgent:
     # Save the model which is under training
     def save_model(self, name):
         self.model.save_weights(name)
+
 
 ## Utils Functions ##
 
@@ -234,11 +245,11 @@ if __name__ == "__main__":
 
     # Get size of state and action from environment
     state_size = (img_rows, img_cols, img_channels)
-    action_size = env.action_space.n # Steering and Throttle
+    action_size = env.action_space.n  # Steering and Throttle
 
     agent = DQNAgent(state_size, action_size)
 
-    throttle = 0.3 # Set throttle as constant value
+    throttle = 0.3  # Set throttle as constant value
 
     episodes = []
 
@@ -254,13 +265,13 @@ if __name__ == "__main__":
         obs = env.reset()
 
         episode_len = 0
-       
+
         x_t = agent.process_image(obs)
 
-        s_t = np.stack((x_t,x_t,x_t,x_t),axis=2)
+        s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)
         # In Keras, need to reshape
-        s_t = s_t.reshape(1, s_t.shape[0], s_t.shape[1], s_t.shape[2]) #1*80*80*4       
-        
+        s_t = s_t.reshape(1, s_t.shape[0], s_t.shape[1], s_t.shape[2])  # 1*80*80*4
+
         while not done:
 
             # Get action for the current state and go one step in environment
@@ -270,8 +281,8 @@ if __name__ == "__main__":
 
             x_t1 = agent.process_image(next_obs)
 
-            x_t1 = x_t1.reshape(1, x_t1.shape[0], x_t1.shape[1], 1) #1x80x80x1
-            s_t1 = np.append(x_t1, s_t[:, :, :, :3], axis=3) #1x80x80x4
+            x_t1 = x_t1.reshape(1, x_t1.shape[0], x_t1.shape[1], 1)  # 1x80x80x1
+            s_t1 = np.append(x_t1, s_t[:, :, :, :3], axis=3)  # 1x80x80x4
 
             # Save the sample <s, a, r, s'> to the replay memory
             agent.replay_memory(s_t, np.argmax(linear_bin(steering)), reward, s_t1, done)
@@ -283,7 +294,8 @@ if __name__ == "__main__":
             agent.t = agent.t + 1
             episode_len = episode_len + 1
             if agent.t % 30 == 0:
-                print("EPISODE",  e, "TIMESTEP", agent.t,"/ ACTION", action, "/ REWARD", reward, "/ EPISODE LENGTH", episode_len, "/ Q_MAX " , agent.max_Q)
+                print("EPISODE", e, "TIMESTEP", agent.t, "/ ACTION", action, "/ REWARD", reward, "/ EPISODE LENGTH",
+                      episode_len, "/ Q_MAX ", agent.max_Q)
 
             if done:
 
@@ -291,7 +303,6 @@ if __name__ == "__main__":
                 agent.update_target_model()
 
                 episodes.append(e)
-                
 
                 # Save model for each episode
                 if agent.train:
@@ -299,4 +310,3 @@ if __name__ == "__main__":
 
                 print("episode:", e, "  memory length:", len(agent.memory),
                       "  epsilon:", agent.epsilon, " episode length:", episode_len)
-
